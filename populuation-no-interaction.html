@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>Age Distribution</title>
+  <style>
+    body {
+      font-family: Helvetica;
+    }
+
+    .axis text {
+      font-size: 15px;
+    }
+
+    .play-button {
+      margin-left: 10px;
+      margin-bottom: 15px;
+      font-style: italic;
+      cursor: pointer;
+      color: grey;
+    }
+
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      width: 640px;
+    }
+
+    .button {
+      margin-left: 5px;
+      margin-right: 5px;
+      cursor: pointer;
+    }
+
+    .selected {
+      font-weight: bold;
+      color: red;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="text/javascript" src="d3/d3.v7.min.js"></script>
+  <script>
+    var margin = {
+      top: 30,
+      right: 30,
+      bottom: 0,
+      left: 100
+    },
+      width = 640 - margin.left - margin.left,
+      height = 480 - margin.top - margin.bottom;
+    var body = d3.select("body");
+
+    d3.csv("data/allData.csv").then(function (data) {
+      var allYears = data.map(function (element) {
+        return element.year;
+      })
+      console.log(allYears);
+      allYears.sort();
+      console.log(allYears);
+      //d3 v5可以使用set函数
+      //allYears = d3.set(allYears).values(); // computing the unique values
+      //d3 v6需要使用union函数，获得年份集合（年份唯一)
+      allYears = d3.union(allYears); // computing the unique values
+      console.log(allYears);
+      allYears = Array.from(allYears.values());    //再转回array类型
+      var curYear = allYears[0];
+      console.log(allYears);
+
+
+      var popData = data.filter(function (element) {
+        return element.year == curYear
+      });
+
+      console.log(popData);
+
+      var x = d3.scaleLinear()
+        .range([0, width])
+        .domain([0, d3.max(data, function (element) {
+          return element.value;
+        })]);
+      var y = d3.scaleBand()
+        .rangeRound([0, height])
+        .paddingInner(0.2)
+        .paddingOuter(0)
+        .domain(popData.map(function (element) {
+          return element.age;
+        }));
+
+      body.append("h2")
+        .text("Age distribution of the world, " + curYear);
+
+      var playAll = body.append("div")
+        .attr("class", "play-button")
+        .text("▶ PLAY ALL YEARS");
+
+      var playInterval;
+      playAll.on("click", function () {
+        var i = 0;
+        playInterval = setInterval(function () {
+          updateByYear(allYears[i]);
+          i++;
+          if (i >= allYears.length)
+            clearInterval(playInterval);
+        }, 500);
+      });
+
+      drawYearButtons();
+      //绘制参考线
+      var svg = body.append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+      svg.append("g").append("rect")
+        .attr("width", width)
+        .attr("height", height)
+        .attr("fill", "gray")
+        .attr("opacity", 0.2)
+        .on("click", function (event) {
+          updateLine(d3.pointer(event)[0])
+        });
+      drawBars();
+      drawReferenceLine();
+
+      function drawReferenceLine() {
+        var reference = svg.append("g")
+          .attr("class", "reference")
+          .attr("visibility", "hidden");
+
+        reference.append("line")
+          .attr("x1", 0)
+          .attr("x2", 0)
+          .attr("y1", 0)
+          .attr("y2", height)
+          .attr("stroke", "red");
+        reference.append("text")
+          .text("");
+      }
+
+      function updateLine(coordX) {
+        var value = x.invert(coordX);
+        var referenceLine = d3.select(".reference")
+          .attr("visibility", "visible");
+
+        referenceLine.select("line")
+          .attr("x1", coordX)
+          .attr("x2", coordX);
+
+        referenceLine.select("text")
+          .text(d3.format(".1%")(value))
+          .attr("x", coordX)
+          .attr("y", 30);
+      }
+
+      // 绘制所有年份
+      function drawYearButtons() {
+        var buttons = body.append("div")
+          .attr("class", "buttons")
+          .selectAll("div")
+          .data(allYears)
+          .join("div")
+          .text(d => d)
+          .attr("class", function (d) {
+            if (d == curYear) {
+              return "button selected"
+            } else
+              return "button";
+          });
+
+        buttons.on("click", function (event, d) {
+          clearInterval(playInterval);
+          updateByYear(d);
+        })
+      }
+
+
+      function updateByYear(updateYear) {
+        d3.select("h2")
+          .text("Age distribution of the world, " + updateYear);
+
+        d3.select(".selected")
+          .classed("selected", false);
+
+        d3.select(".buttons").selectAll("div")
+          .filter(function (d) {
+            return d == updateYear;
+          })
+          .classed("selected", true);
+
+        popData = data.filter(function (element) {
+          return element.year == updateYear
+        });
+
+        var bars = svg.selectAll(".bar rect");
+        bars.data(popData, keys)
+          .transition()
+          .duration(400)
+          .ease(d3.easeLinear)
+          .attr("width", function (d) {
+            return x(d.value);
+          })
+      }
+
+      function keys(d) {
+        return d.age;
+      }
+
+      // 绘制柱状图
+      function drawBars() {
+        var bars = svg.append("g")
+          .attr("class", "bar")
+          .selectAll("rect")
+          .data(popData, keys)
+          .join("rect");
+
+        bars.attr("x", 0)
+          .attr("y", d => y(d.age))
+          .attr("width", d => x(d.value))
+          .attr("height", y.bandwidth())
+          .attr("fill", "DarkSlateBlue")
+          .append("title")
+          .text(function (d) {
+            return d3.format(".1%")(d.value);
+          });
+
+        bars.on("mouseover", function () {
+          d3.select(this).attr("fill", "red");
+        })
+          .on("mouseout", function () {
+            d3.select(this).attr("fill", "DarkSlateBlue");
+          });
+
+        var xAxis = d3.axisTop()
+          .scale(x)
+          .ticks(5, "%");
+        var yAxis = d3.axisLeft()
+          .scale(y);
+        svg.append("g")
+          .call(xAxis)
+          .attr("class", "axis")
+        svg.append("g")
+          .call(yAxis)
+          .attr("class", "axis");
+      }
+    });
+  </script>
+</body>
+
+</html>
