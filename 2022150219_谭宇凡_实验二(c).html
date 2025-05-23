@@ -86,8 +86,6 @@
       nestBySubCategory = d3.group(dataUS, function (d) {
         return d.subCategory;
       });
-
-      console.log(nestBySubCategory);
       nestBySubCategory.forEach((value, key) => { // 遍历Map结构
         let sumProfit = 0, sumSales = 0;
         value.forEach(d => {
@@ -101,32 +99,38 @@
         });
       });
       nestBySubCategory = d3.group(dataUS, d => d.subCategory);
-      console.log(nestBySubCategory);
       drawBarChart(barData);
     }).catch(function (error) {
       console.error("Error loading CSV:", error); // 捕获并打印错误
     });
 
-    // TODO: 绘制美国各州的利润地图
+    var usMapData; // 用于存储加载的地图数据
+
+    // 先加载地图数据
     d3.json("data/states-albers-10m.json").then(function (us) {
-      d3.csv("data/sub-categories-states-sales.csv").then(function (data) {
-        // 过滤出美国数据
-        const dataUS = data.filter(d => d.country === "United States");
+      usMapData = us; // 存储到全局变量
+    }).catch(function (error) {
+      console.error("Error loading map data:", error);
+    });
 
-        // 转换 profit 和 sales 为数字
-        dataUS.forEach(d => {
-          d.profit = +d.profit;
-        });
+    // TODO: 绘制美国各州的利润地图
+    d3.csv("data/sub-categories-states-sales.csv").then(function (data) {
+      // 过滤出美国数据
+      const dataUS = data.filter(d => d.country === "United States");
 
-        // 按州名汇总利润
-        const profitMap = d3.rollup(
-          dataUS,
-          v => d3.sum(v, d => d.profit),
-          d => d.state
-        );
-
-        drawMap(us, profitMap);
+      // 转换 profit 和 sales 为数字
+      dataUS.forEach(d => {
+        d.profit = +d.profit;
       });
+
+      // 按州名汇总利润
+      const profitMap = d3.rollup(
+        dataUS,
+        v => d3.sum(v, d => d.profit),
+        d => d.state
+      );
+
+      drawMap(profitMap);
     });
 
 
@@ -179,13 +183,6 @@
         })
         .style("fill", function (d) {
           return color(d.profit); // 根据利润填充颜色
-        })
-        .on("click", function (event, d) {
-          // 高亮当前条形（添加边框）
-          d3.select(this).attr("stroke", "gold").attr("stroke-width", 3);
-
-          // 触发地图更新
-          updateMapByCategory(d.subCategory);
         });
 
       updateRects.transition().duration(1000)
@@ -222,7 +219,8 @@
         .call(yAxis);
     }
 
-    function drawMap(us, profitMap) {
+    function drawMap(profitMap) {
+
       // 获取最大和最小利润
       const maxProfit = d3.max([...profitMap.values()]);
       const minProfit = d3.min([...profitMap.values()]);
@@ -243,8 +241,9 @@
       // 绘制州边界
       svg.append("g")
         .selectAll("path")
-        .data(topojson.feature(us, us.objects.states).features)
+        .data(topojson.feature(usMapData, usMapData.objects.states).features)
         .join("path")
+        .attr("class", "state-path")
         .attr("d", path)
         .attr("fill", d => {
           const profit = profitMap.get(d.properties.name);
@@ -256,7 +255,7 @@
       // 绘制州边界线
       svg.append("g")
         .append("path")
-        .datum(topojson.mesh(us, us.objects.states, (a, b) => a !== b))
+        .datum(topojson.mesh(usMapData, usMapData.objects.states, (a, b) => a !== b))
         .attr("d", path)
         .attr("fill", "none")
         .attr("stroke", "white");
@@ -302,25 +301,6 @@
       legend.append("g")
         .attr("transform", `translate(0,${legendHeight})`)
         .call(legendAxis);
-    }
-
-    function updateMapByCategory(category) {
-      
-      // 重新计算该类别在各州的利润
-      const categoryProfitMap = d3.rollup(
-        dataUS.filter(d => d.subCategory === category),
-        v => d3.sum(v, d => d.profit),
-        d => d.state
-      );
-
-      // 更新地图颜色
-      d3.select("#Map").selectAll("path")
-        .transition()
-        .duration(500)
-        .attr("fill", d => {
-          const profit = categoryProfitMap.get(d.properties.name);
-          return profit ? color(profit) : "#ccc";
-        });
     }
   </script>
 </body>
