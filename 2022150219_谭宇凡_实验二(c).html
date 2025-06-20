@@ -30,17 +30,30 @@
         */
     .mainView {
       display: flex;
+      /* 启用Flex布局 */
+      flex-wrap: wrap;
+      /* 允许换行 */
+      justify-content: center;
+      /* 水平居中所有子项 */
+    }
+
+    .mainView>div {
+      margin: 10px;
+      /* 增加间距避免紧贴 */
+    }
+
+    .mainView>div:nth-child(3) {
+      /* 选中第三个div（饼图容器） */
+      flex-basis: 100%;
+      /* 强制独占整行 */
+      text-align: center;
+      /* 水平居中内部内容 */
     }
 
     /* TODO 3
          - Use the "display flex" feature from to show the items from class `mainView` side by side
          1-3 lines of cide
         */
-    #Other {
-      width: 100%;
-      height: auto;
-      overflow: visible;
-    }
 
     /* 工具提示样式 */
     .tooltip {
@@ -53,6 +66,20 @@
       font-size: 12px;
       line-height: 1.4;
       z-index: 10;
+    }
+
+    .hover-highlight {
+      stroke: steelblue;
+      stroke-width: 2px;
+      z-index: 1;
+      /* 确保悬停效果在红框下方 */
+    }
+
+    rect[stroke="red"] {
+      z-index: 2;
+      /* 红框置顶 */
+      stroke-width: 3px !important;
+      /* 强制覆盖悬停效果 */
     }
   </style>
 </head>
@@ -79,6 +106,7 @@
     <div>
       <h2>Other</h2>
       <svg id="Other">
+        <g id="background"></g>
         <g id="pieChart"></g>
         <g id="pieLegend"></g>
       </svg>
@@ -92,7 +120,7 @@
       .attr("class", "tooltip")
       .style("opacity", 0);
 
-    var barChartWidth = 480, barChartHeight = 480;
+    var barChartWidth = 610, barChartHeight = 610;
     var barChartPadding = {
       top: 30,
       left: 80,
@@ -201,6 +229,8 @@
         .attr("opacity", 1)
         .on("click", function (event) {
           d3.select("#rects").selectAll("rect").attr("stroke", null);
+          d3.select("#map").selectAll(".state-path").attr("stroke", null);
+          d3.select("#pieChart").selectAll("path").attr("stroke", null);
           drawMap(profitMap, `Profit of All Catrgories`);
           d3.select("#pieChart").selectAll("*").remove();
           d3.select("#pieLegend").selectAll("*").remove();
@@ -248,16 +278,32 @@
           return color(d.profit);
         })
         .on("click", function (event, d) {
+          const isSelected = d3.select(this).attr("stroke") === "red";
+
+          // 清除所有图表的高亮
           d3.select("#rects").selectAll("rect").attr("stroke", null);
-          d3.select(this).attr("stroke", "red").attr("stroke-width", 3);
-          updateMapByCategory(d.subCategory);
+          d3.select("#map").selectAll(".state-path").attr("stroke", null);
+          d3.select("#pieChart").selectAll("path").attr("stroke", null);
+
+          // 切换当前元素的选中状态
+          if (!isSelected) {
+            d3.select(this).attr("stroke", "red").attr("stroke-width", 3);
+            updateMapByCategory(d.subCategory);
+            updatePieChartByState(d.subCategory);
+          } else {
+            // 恢复默认视图
+            drawMap(profitMap, `Profit of All Categories`);
+            d3.select("#pieChart").selectAll("*").remove();
+            d3.select("#pieLegend").selectAll("*").remove();
+          }
         })
         // 添加鼠标悬停事件
         .on("mouseover", function (event, d) {
           // 高亮当前柱形
-          d3.select(this)
-            .attr("stroke", "steelblue")
-            .attr("stroke-width", 2);
+          const isSelected = d3.select(this).attr("stroke") === "red";
+          if (!isSelected) {
+            d3.select(this).classed("hover-highlight", true);
+          }
 
           // 显示工具提示
           tooltip.transition()
@@ -266,17 +312,15 @@
 
           tooltip.html(`
       <div><strong>${d.subCategory}</strong></div>
-      <div>Sales: $${d.sales.toFixed(2)}</div>
-      <div>Profit: $${d.profit.toFixed(2)}</div>
+      <div>销售额: $${d.sales.toFixed(2)}</div>
+      <div>利润: $${d.profit.toFixed(2)}</div>
     `)
             .style("left", (event.pageX + 10) + "px")
             .style("top", (event.pageY - 28) + "px");
         })
         .on("mouseout", function () {
           // 移除高亮
-          d3.select(this)
-            .attr("stroke", null);
-
+          d3.select(this).classed("hover-highlight", false);
           // 隐藏工具提示
           tooltip.transition()
             .duration(500)
@@ -346,7 +390,9 @@
         .attr("fill", "#FAFAFA")
         .attr("opacity", 1)
         .on("click", function (event) {
-          svg.select("#map").selectAll(".state-path").attr("stroke", null);
+          d3.select("#rects").selectAll("rect").attr("stroke", null);
+          d3.select("#map").selectAll(".state-path").attr("stroke", null);
+          d3.select("#pieChart").selectAll("path").attr("stroke", null);
           drawBarChart(barData, `Profit of All States`);
           d3.select("#pieChart").selectAll("*").remove();
           d3.select("#pieLegend").selectAll("*").remove();
@@ -365,40 +411,60 @@
           const path = enter.append("path")
             .attr("class", "state-path")
             .attr("d", d3.geoPath())
-            .attr("fill", d => {
-              const profit = profitMap.get(d.properties.name);
-              return profit ? color(profit) : "#ccc";
-            })
             .on("click", function (event, d) {
-              map.selectAll(".state-path").attr("stroke", null);
-              d3.select(this).attr("stroke", "red") // 或者你选择的任何高亮颜色
-                .attr("stroke-width", "3px");
-              // 获取被点击的州的名字
-              const stateName = d.properties.name;
+              const isSelected = d3.select(this).attr("stroke") === "red";
 
-              // 使用州名字更新柱状图
-              updateBarChartByState(stateName);
+              d3.select("#rects").selectAll("rect").attr("stroke", null);
+              d3.select("#map").selectAll(".state-path").attr("stroke", null);
+              d3.select("#pieChart").selectAll("path").attr("stroke", null);
+
+              if (!isSelected) {
+                d3.select(this).attr("stroke", "red").attr("stroke-width", "3px");
+                const stateName = d.properties.name;
+                updateBarChartByState(stateName);
+                updatePieChartByCategory(stateName);
+              } else {
+                drawBarChart(barData, `Profit of All States`);
+                d3.select("#pieChart").selectAll("*").remove();
+                d3.select("#pieLegend").selectAll("*").remove();
+              }
+            })
+            .on("mouseover", function (event, d) {
+              const isSelected = d3.select(this).attr("stroke") === "red";
+              if (!isSelected) {
+                d3.select(this).classed("hover-highlight", true);
+              }
+
+              // Show tooltip with unified format
+              const profit = profitMap.get(d.properties.name) || 0;
+              tooltip.transition()
+                .duration(200)
+                .style("opacity", 0.9);
+              tooltip.html(`
+                <div><strong>${d.properties.name}</strong></div>
+                <div>利润: $${profit.toFixed(2)}</div>
+              `)
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 28) + "px");
+            })
+            .on("mouseout", function () {
+              d3.select(this).classed("hover-highlight", false);
+
+              // Hide tooltip
+              tooltip.transition()
+                .duration(500)
+                .style("opacity", 0);
             });
-
-          path.append("title")
-            .text(d => `${d.properties.name}\nProfit: $${(profitMap.get(d.properties.name) || 0).toFixed(2)}`);
 
           return path;
         },
-        update => {
-          update.transition().duration(500)
-            .attr("fill", d => {
-              const profit = profitMap.get(d.properties.name);
-              return profit ? color(profit) : "#ccc";
-            });
-
-          update.select("title")
-            .text(d => `${d.properties.name}\nProfit: $${(profitMap.get(d.properties.name) || 0).toFixed(2)}`);
-
-          return update;
-        },
+        update => update,
         exit => exit.remove()
-      );
+      )
+        .attr("fill", d => {
+          const profit = profitMap.get(d.properties.name);
+          return profit ? color(profit) : "#ccc";
+        });
 
       // 更新边界线
       const boundary = map.selectAll(".state-boundary").data([null]);
@@ -475,6 +541,25 @@
       // 清除现有内容
       d3.select("#pieChart").selectAll("*").remove();
       d3.select("#pieLegend").selectAll("*").remove();
+      d3.select("#Other").select("#background").selectAll("*").remove();
+
+      // 添加背景矩形
+      d3.select("#Other")
+        .select("#background")
+        .append("rect")
+        .attr("width", pieChartWidth)  // 适当调整宽度
+        .attr("height", pieChartHeight)
+        .attr("fill", "#FAFAFA")
+        .attr("opacity", 1)
+        .on("click", function (event) {
+          d3.select("#rects").selectAll("rect").attr("stroke", null);
+          d3.select("#map").selectAll(".state-path").attr("stroke", null);
+          d3.select("#pieChart").selectAll("path").attr("stroke", null);
+          drawBarChart(barData, `Profit of All States`);
+          drawMap(profitMap, `Profit of All Categories`);
+          d3.select("#pieChart").selectAll("*").remove();
+          d3.select("#pieLegend").selectAll("*").remove();
+        });
 
       // 创建饼图布局
       var pie = d3.pie()
@@ -514,17 +599,18 @@
             .style("opacity", 0.9);
 
           tooltip.html(`
-      <div><strong>${d.data.name}</strong></div>
-      <div>利润: $${d.data.value.toFixed(2)}</div>
-      <div>占比: ${percentage}</div>
-    `)
+            <div><strong>${d.data.name}</strong></div>
+            <div>利润: $${d.data.value.toFixed(2)}</div>
+            <div>占比: ${percentage}</div>
+          `)
             .style("left", (event.pageX + 10) + "px")
             .style("top", (event.pageY - 28) + "px");
+          const isSelected = d3.select(this).attr("stroke") === "red";
+          if (!isSelected) {
+            // 高亮当前扇形
+            d3.select(this).classed("hover-highlight", true);
+          }
 
-          // 高亮当前扇形
-          d3.select(this)
-            .attr("stroke", "red")
-            .attr("stroke-width", 2);
         })
         .on("mouseout", function () {
           // 隐藏工具提示
@@ -532,14 +618,30 @@
             .duration(500)
             .style("opacity", 0);
 
-          // 恢复扇形样式
-          d3.select(this)
-            .attr("stroke", "white")
-            .attr("stroke-width", 1);
+          d3.select(this).classed("hover-highlight", false);
         })
         .on("click", function (event, d) {
-          // 点击饼图扇形时的交互
-          d3.select(this).attr("stroke", "red").attr("stroke-width", 3);
+          const isSelected = d3.select(this).attr("stroke") === "red";
+
+          d3.select("#rects").selectAll("rect").attr("stroke", null);
+          d3.select("#map").selectAll(".state-path").attr("stroke", null);
+          d3.select("#pieChart").selectAll("path").attr("stroke", null);
+
+          if (!isSelected) {
+            d3.select(this).attr("stroke", "red").attr("stroke-width", 3);
+            if (title.includes("State")) {
+              updateBarChartByState(d.data.name);
+            } else if (title.includes("Category")) {
+              updateMapByCategory(d.data.name);
+            }
+          } else {
+            // 根据当前饼图类型恢复对应默认视图
+            if (title.includes("State")) {
+              drawBarChart(barData, `Profit of All States`);
+            } else {
+              drawMap(profitMap, `Profit of All Categories`);
+            }
+          }
         });
 
       // 添加标题
@@ -594,6 +696,9 @@
       );
 
       drawMap(categoryProfitMap, `Profit of ${category}`);
+    }
+
+    function updatePieChartByState(category) {
 
       // 计算该类别下各州的利润（只计算利润>0的州）
       const positiveStates = dataUS
@@ -609,10 +714,29 @@
           name: state,
           value: profit
         }));
-      console.log(pieData);
 
       // 绘制饼图
       drawPieChart(pieData, `Profit by State (${category})`);
+    }
+
+    function updatePieChartByCategory(state) {
+
+      const positiveCategories = dataUS
+        .filter(d => d.state === state && d.profit > 0)
+        .reduce((acc, d) => {
+          acc[d.subCategory] = (acc[d.subCategory] || 0) + d.profit;
+          return acc;
+        }, {});
+
+      // 转换为饼图数据格式
+      const pieData = Object.entries(positiveCategories)
+        .map(([category, profit]) => ({
+          name: category,
+          value: profit
+        }));
+
+      // 绘制饼图
+      drawPieChart(pieData, `Profit by Category (${state})`);
     }
 
     function updateBarChartByState(state) {
@@ -636,23 +760,6 @@
 
       // 更新柱状图
       drawBarChart(barData, `Profit of State (${state})`);
-
-      const positiveCategories = dataUS
-        .filter(d => d.state === state && d.profit > 0)
-        .reduce((acc, d) => {
-          acc[d.subCategory] = (acc[d.subCategory] || 0) + d.profit;
-          return acc;
-        }, {});
-
-      // 转换为饼图数据格式
-      const pieData = Object.entries(positiveCategories)
-        .map(([category, profit]) => ({
-          name: category,
-          value: profit
-        }));
-
-      // 绘制饼图
-      drawPieChart(pieData, `Profit by Category (${state})`);
     }
   </script>
 </body>
