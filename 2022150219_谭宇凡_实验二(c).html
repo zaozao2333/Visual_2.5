@@ -36,6 +36,24 @@
          - Use the "display flex" feature from to show the items from class `mainView` side by side
          1-3 lines of cide
         */
+    #Other {
+      width: 100%;
+      height: auto;
+      overflow: visible;
+    }
+
+    /* 工具提示样式 */
+    .tooltip {
+      position: absolute;
+      padding: 8px;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      border-radius: 4px;
+      pointer-events: none;
+      font-size: 12px;
+      line-height: 1.4;
+      z-index: 10;
+    }
   </style>
 </head>
 
@@ -60,12 +78,20 @@
     </div>
     <div>
       <h2>Other</h2>
-      <svg id="Other"></svg>
+      <svg id="Other">
+        <g id="pieChart"></g>
+        <g id="pieLegend"></g>
+      </svg>
     </div>
   </div>
   <script src="d3/d3.v7.min.js"></script>
   <script src="https://unpkg.com/topojson-client@3"></script>
   <script>
+    // 创建工具提示元素
+    var tooltip = d3.select("body").append("div")
+      .attr("class", "tooltip")
+      .style("opacity", 0);
+
     var barChartWidth = 480, barChartHeight = 480;
     var barChartPadding = {
       top: 30,
@@ -80,6 +106,17 @@
     var dataUS;
     var profitMap;
     var barData;
+
+    // 饼图尺寸和边距
+    var pieChartWidth = 900; /* 从400增加到500 */
+    var pieChartHeight = 500;
+    var pieRadius = Math.min(pieChartWidth, pieChartHeight) / 2 - 30; /* 增加边距 */
+
+    // 初始化饼图SVG
+    d3.select("#Other")
+      .attr("width", pieChartWidth)
+      .attr("height", pieChartHeight);
+
 
     d3.csv("data/sub-categories-states-sales.csv").then(function (data) {
       barData = [];
@@ -108,7 +145,7 @@
         });
       });
       nestBySubCategory = d3.group(dataUS, d => d.subCategory);
-      drawBarChart(barData);
+      drawBarChart(barData, `Profit of All States`);
     }).catch(function (error) {
       console.error("Error loading CSV:", error); // 捕获并打印错误
     });
@@ -135,7 +172,7 @@
           d => d.state
         );
 
-        drawMap(profitMap);
+        drawMap(profitMap, `Profit of All Categories`);
       });
     }).catch(function (error) {
       console.error("Error loading map data:", error);
@@ -144,8 +181,15 @@
 
 
 
-    function drawBarChart(barData) {
-
+    function drawBarChart(barData, title) {
+      d3.select("#rects").selectAll("text.title").remove();
+      d3.select("#rects")
+        .append("text")
+        .attr("x", barChartWidth / 2)
+        .attr("y", 20)
+        .attr("text-anchor", "middle")
+        .attr("class", "title")
+        .text(title);
       var barChart = d3.select("#CatergoryChart")
         .attr("width", barChartWidth)
         .attr("height", barChartHeight);
@@ -157,7 +201,9 @@
         .attr("opacity", 1)
         .on("click", function (event) {
           d3.select("#rects").selectAll("rect").attr("stroke", null);
-          drawMap(profitMap);
+          drawMap(profitMap, `Profit of All Catrgories`);
+          d3.select("#pieChart").selectAll("*").remove();
+          d3.select("#pieLegend").selectAll("*").remove();
         });
 
       var xScale = d3.scaleLinear()
@@ -191,25 +237,50 @@
 
       enterRects.append("rect")
         .attr("width", function (d) {
-          return xScale(d.sales) - barChartPadding.left; // 销量决定宽度
+          return xScale(d.sales) - barChartPadding.left;
         })
-        // 用比例尺的带宽动态计算矩形高度
         .attr("height", yScale.bandwidth())
-        .attr("x", barChartPadding.left) // 从左边缘开始
+        .attr("x", barChartPadding.left)
         .attr("y", function (d, i) {
           return yScale(d.subCategory);
         })
         .style("fill", function (d) {
-          return color(d.profit); // 根据利润填充颜色
+          return color(d.profit);
         })
         .on("click", function (event, d) {
-          //  取消所有高亮
           d3.select("#rects").selectAll("rect").attr("stroke", null);
-          // 高亮当前条形（添加边框）
           d3.select(this).attr("stroke", "red").attr("stroke-width", 3);
-
-          // 触发地图更新
           updateMapByCategory(d.subCategory);
+        })
+        // 添加鼠标悬停事件
+        .on("mouseover", function (event, d) {
+          // 高亮当前柱形
+          d3.select(this)
+            .attr("stroke", "steelblue")
+            .attr("stroke-width", 2);
+
+          // 显示工具提示
+          tooltip.transition()
+            .duration(200)
+            .style("opacity", 0.9);
+
+          tooltip.html(`
+      <div><strong>${d.subCategory}</strong></div>
+      <div>Sales: $${d.sales.toFixed(2)}</div>
+      <div>Profit: $${d.profit.toFixed(2)}</div>
+    `)
+            .style("left", (event.pageX + 10) + "px")
+            .style("top", (event.pageY - 28) + "px");
+        })
+        .on("mouseout", function () {
+          // 移除高亮
+          d3.select(this)
+            .attr("stroke", null);
+
+          // 隐藏工具提示
+          tooltip.transition()
+            .duration(500)
+            .style("opacity", 0);
         });
 
       updateRects.transition().duration(1000)
@@ -246,7 +317,15 @@
         .call(yAxis);
     }
 
-    function drawMap(profitMap) {
+    function drawMap(profitMap, title) {
+      d3.select("#map").selectAll("text.title").remove();
+      d3.select("#map")
+        .append("text")
+        .attr("x", mapChartWidth / 2)
+        .attr("y", 20)
+        .attr("text-anchor", "middle")
+        .attr("class", "title")
+        .text(title);
       // 获取最大和最小利润
       const maxProfit = d3.max([...profitMap.values()]);
       const minProfit = d3.min([...profitMap.values()]);
@@ -268,7 +347,9 @@
         .attr("opacity", 1)
         .on("click", function (event) {
           svg.select("#map").selectAll(".state-path").attr("stroke", null);
-          drawBarChart(barData);
+          drawBarChart(barData, `Profit of All States`);
+          d3.select("#pieChart").selectAll("*").remove();
+          d3.select("#pieLegend").selectAll("*").remove();
         });
       var map = svg.select("#map");
 
@@ -389,6 +470,120 @@
         .call(legendAxis);
     }
 
+    // 绘制饼图的函数
+    function drawPieChart(data, title) {
+      // 清除现有内容
+      d3.select("#pieChart").selectAll("*").remove();
+      d3.select("#pieLegend").selectAll("*").remove();
+
+      // 创建饼图布局
+      var pie = d3.pie()
+        .value(d => d.value)
+        .sort(null);
+
+      // 创建弧生成器
+      var arc = d3.arc()
+        .innerRadius(0)
+        .outerRadius(pieRadius);
+
+      // 颜色比例尺
+      var color = d3.scaleOrdinal()
+        .domain(data.map(d => d.name))
+        .range(d3.schemeCategory10);
+
+      // 绘制饼图
+      var arcs = d3.select("#pieChart")
+        .attr("transform", `translate(${pieChartWidth / 3}, ${pieChartHeight / 2})`)
+        .selectAll("path")
+        .data(pie(data))
+        .enter()
+        .append("path")
+        .attr("d", arc)
+        .attr("fill", d => color(d.data.name))
+        .attr("stroke", "white")
+        .attr("stroke-width", 1)
+        .on("mouseover", function (event, d) {
+          // 计算总利润
+          const total = d3.sum(data, x => x.value);
+          // 计算当前扇形的占比
+          const percentage = (d.data.value / total * 100).toFixed(2) + '%';
+
+          // 显示工具提示
+          tooltip.transition()
+            .duration(200)
+            .style("opacity", 0.9);
+
+          tooltip.html(`
+      <div><strong>${d.data.name}</strong></div>
+      <div>利润: $${d.data.value.toFixed(2)}</div>
+      <div>占比: ${percentage}</div>
+    `)
+            .style("left", (event.pageX + 10) + "px")
+            .style("top", (event.pageY - 28) + "px");
+
+          // 高亮当前扇形
+          d3.select(this)
+            .attr("stroke", "red")
+            .attr("stroke-width", 2);
+        })
+        .on("mouseout", function () {
+          // 隐藏工具提示
+          tooltip.transition()
+            .duration(500)
+            .style("opacity", 0);
+
+          // 恢复扇形样式
+          d3.select(this)
+            .attr("stroke", "white")
+            .attr("stroke-width", 1);
+        })
+        .on("click", function (event, d) {
+          // 点击饼图扇形时的交互
+          d3.select(this).attr("stroke", "red").attr("stroke-width", 3);
+        });
+
+      // 添加标题
+      d3.select("#pieChart")
+        .append("text")
+        .attr("x", 0)
+        .attr("y", -pieRadius - 10)
+        .attr("text-anchor", "middle")
+        .text(title);
+
+      // 计算每列最大项目数
+      const itemsPerColumn = Math.ceil(data.length / 2);
+
+      // 修改图例位置代码
+      var legend = d3.select("#pieLegend")
+        .attr("transform", `translate(${pieChartWidth / 2 + 100}, ${pieChartHeight / 2 - (itemsPerColumn * 20) / 2})`)
+        .selectAll(".legend")
+        .data(data)
+        .enter()
+        .append("g")
+        .attr("class", "legend")
+        .attr("transform", (d, i) => {
+          // 如果项目超过25个，分成两列
+          if (data.length > 25) {
+            const column = i < itemsPerColumn ? 0 : 150;
+            const row = i < itemsPerColumn ? i : i - itemsPerColumn;
+            return `translate(${column}, ${row * 20})`;
+          } else {
+            return `translate(0, ${i * 20})`;
+          }
+        });
+
+      legend.append("rect")
+        .attr("width", 18)
+        .attr("height", 18)
+        .attr("fill", d => color(d.name));
+
+      legend.append("text")
+        .attr("x", 24)
+        .attr("y", 9)
+        .attr("dy", ".35em")
+        .text(d => d.name);
+    }
+
     function updateMapByCategory(category) {
 
       // 重新计算该类别在各州的利润
@@ -398,7 +593,26 @@
         d => d.state
       );
 
-      drawMap(categoryProfitMap);
+      drawMap(categoryProfitMap, `Profit of ${category}`);
+
+      // 计算该类别下各州的利润（只计算利润>0的州）
+      const positiveStates = dataUS
+        .filter(d => d.subCategory === category && d.profit > 0)
+        .reduce((acc, d) => {
+          acc[d.state] = (acc[d.state] || 0) + d.profit;
+          return acc;
+        }, {});
+
+      // 转换为饼图数据格式
+      const pieData = Object.entries(positiveStates)
+        .map(([state, profit]) => ({
+          name: state,
+          value: profit
+        }));
+      console.log(pieData);
+
+      // 绘制饼图
+      drawPieChart(pieData, `Profit by State (${category})`);
     }
 
     function updateBarChartByState(state) {
@@ -421,7 +635,24 @@
       }));
 
       // 更新柱状图
-      drawBarChart(barData);
+      drawBarChart(barData, `Profit of State (${state})`);
+
+      const positiveCategories = dataUS
+        .filter(d => d.state === state && d.profit > 0)
+        .reduce((acc, d) => {
+          acc[d.subCategory] = (acc[d.subCategory] || 0) + d.profit;
+          return acc;
+        }, {});
+
+      // 转换为饼图数据格式
+      const pieData = Object.entries(positiveCategories)
+        .map(([category, profit]) => ({
+          name: category,
+          value: profit
+        }));
+
+      // 绘制饼图
+      drawPieChart(pieData, `Profit by Category (${state})`);
     }
   </script>
 </body>
